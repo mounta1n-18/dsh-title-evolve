@@ -1,0 +1,5 @@
+# dsh-title-evolve bundle patch.
+# 安装：把下面插件行插入目标 profile 的 cordis 配置（或 `dsh plugin add <仓库URL>`）。
+- insert:
+    - id: title-evolve
+      name: title-evolve

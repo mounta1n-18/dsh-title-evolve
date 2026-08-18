@@ -1,0 +1,17 @@
+{
+    "name": "title-evolve",
+    "version": "0.1.0",
+    "description": "DSH 会话标题全流程更新器：每次回答完毕进入待命后，均匀抽样对话记录并生成 ≤15 字的小标题，覆盖整个工作流。",
+    "type": "module",
+    "main": "lib/index.js",
+    "exports": {
+        ".": "./lib/index.js",
+        "./package.json": "./package.json"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    },
+    "license": "MIT"
+}
