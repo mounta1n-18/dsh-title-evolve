@@ -10,15 +10,24 @@
 ```
 用户发送消息
   └─> session/event（root 宿主级事件，与官方 session-title 服务同源）
-        └─> handleNewMessage(session)
-              ├─ 1) 尊重手动改名：当前标题 source.kind==='user' 则跳过
-              ├─ 2) 收集该会话全部人类用户消息（user/message, source.kind==='user'）
-              ├─ 3) 去重：最后消息 seq 与上次处理相同则跳过
-              ├─ 4) 占位：会话无标题或仍为官方 fallback 时，同步 append
-              │      「标题生成中…」（source=provider/title-evolve）
-              │      → 官方 ensureFallback 见到已有标题即跳过 → fallback 永不写入
-              └─ 5) 异步生成：抽样 → LLM 调用 → 规范化 → append 正式标题（覆盖占位）
+        ├─ user/message → handleNewMessage(session)
+        │     ├─ 1) 尊重手动改名：当前标题 source.kind==='user' 则跳过
+        │     ├─ 2) 收集该会话全部人类用户消息
+        │     ├─ 3) 去重：最后消息 seq 与上次处理相同则跳过
+        │     ├─ 4) 路由未就绪（首条消息 request/header 尚未记录）→ 置 waitHeader 等待
+        │     └─ 5) 就绪后：微任务写占位「标题生成中…」+ 异步生成正式标题
+        └─ request/header → waitHeader 标记的会话补触发 handleNewMessage
 ```
+
+### 占位标题与官方 fallback 的时序（对抗式审查 #1 修复）
+
+- `session.append` 在同一 append 内**同步派发** `session/event`，派发期间存在重入保护
+  （再次 append 抛错）——占位不能在监听器内同步写入；
+- 因此占位改为**微任务**（`Promise.resolve().then`）写入，时序为：
+  1. user/message 派发 → 官方 `ensureFallback` 的 defer 微任务排队（先执行，写官方 fallback）；
+  2. 我们的占位微任务随后执行，见当前标题为 fallback → 覆盖为「标题生成中…」；
+  3. LLM 生成完成后 append 正式标题，覆盖占位。
+- 结果：官方 fallback 只在毫秒级窗口内存在，最终标题始终为插件产物。
 
 ### 官方 first-prompt provider 的拦截
 
@@ -27,8 +36,16 @@
   └─> llm/stream 瀑布（global + prepend，宿主级）
         └─> 命中：purpose==='session-title' 且 messages[0].source.plugin==='dsh-session-title-llm'
               → 返回 error-finish 流 → 官方 generateSessionTitleWithLlm 抛错
-              → 官方标题永不写入（仅一条自动生成失败警告日志）
+              → 官方标题永不写入（fresh 会话会产生一条官方 warn 日志，属拦截生效标志）
 ```
+
+### 超时与挂死防护（对抗式审查 #2 修复）
+
+- 30 秒超时：置 stale 并 abort 底层流（AbortController 可用时传给 `llm.stream` 的 signal）；
+- 90 秒兜底：即使适配器忽略 abort / 流永久挂死，也强制复位会话 `inFlight` 状态，
+  防止该会话标题永久停摆（旧 promise 的写入前复查会丢弃过期结果）；
+- 生成确定性失败（路由缺失/非 stop 结束/空标题/异常）时，若当前标题为占位，
+  用首条消息截断（≤12 字）兜底覆盖，避免标题卡在「标题生成中…」。
 
 ### 抽样与生成
 

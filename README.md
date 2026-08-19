@@ -46,6 +46,8 @@ dsh plugin add https://github.com/mounta1n-18/dsh-title-evolve
 
 ## 工作原理
 
+> 详细运行逻辑、外挂补丁清单与回滚方式见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
 **完全接管官方标题生成**：插件挂载期间，官方 fallback 与 first-prompt provider 均不工作；卸载后自动恢复（所有监听随插件作用域清理）。
 
 1. **抑制官方 fallback**：监听 `session/event`（user/message，与官方 session-title 服务相同的事件源），首条消息时**同步写入占位标题「标题生成中…」**——官方 `ensureFallback` 在会话已有标题时跳过写入，fallback 从此不再出现；
